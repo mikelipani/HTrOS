@@ -1,0 +1,159 @@
+//Mobile Heater Operating System - HTrOS
+//Build Start Date: 2-17-2023
+//Version 1.0
+//Mike Lipani
+
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 16, 2); // Defines LCD geometry
+
+#define ONE_WIRE_BUS 5 //Begins single wire bus on pin indicated
+
+OneWire oneWire(ONE_WIRE_BUS); //Initializes OneWire bus
+
+DallasTemperature sensors(&oneWire); //Initializes Dallas sensor module on OneWire bus
+
+int Relay1Pin = 2;
+int Relay2Pin = 3;
+int ButtonState;
+int ButtonPin = 4;
+int CurrentTemp;
+int DesiredTemp = 68; //Default temperature the heater will boot up with 
+int TempOffset = 1; //Hystereis value to control heater overshoot
+int PollDelay = 6000; //Time in ms between temperature sensor polling
+int DeltaT;
+String StatusIdle = "IDLE";
+String StatusLow = "LOW";
+String StatusMed = "MED";
+String StatusHigh = "HIGH";
+String CurrentStatus;
+
+
+unsigned long LCDTimer;
+unsigned long PollMillis = 0;
+bool LCDBacklight;
+
+
+void setup() {
+  
+Serial.begin(9600);  
+sensors.begin();
+pinMode(Relay1Pin, OUTPUT);
+pinMode(Relay2Pin, OUTPUT);
+pinMode(ButtonPin, INPUT);
+
+digitalWrite(Relay1Pin, LOW);
+digitalWrite(Relay2Pin, LOW);
+
+lcd.init(); //Initialize the LCD display with static interface text 
+lcd.backlight();
+LCDBacklight = true;
+
+lcd.setCursor(0,0);
+lcd.print("HTrOS");
+lcd.setCursor(0,1);
+lcd.print("Temp:");
+lcd.setCursor(10,1);
+lcd.print("Set:");
+lcd.setCursor(14,1);
+lcd.print(DesiredTemp);
+
+GetTemperature();
+
+}
+
+void GetTemperature(){ //Poll temperature sensor & update display function
+  sensors.requestTemperatures();
+  CurrentTemp = sensors.getTempFByIndex(0);
+  Serial.print("Ambient Temperature: ");
+  Serial.println(CurrentTemp);
+  Serial.print("Setpoint Temperature: ");
+  Serial.println(DesiredTemp);
+  lcd.setCursor(5,1);
+  lcd.print(CurrentTemp);
+  PollMillis = millis();
+}
+
+void HeaterControl(int CtrlLevel){
+  if(CtrlLevel == 0){
+      digitalWrite(Relay1Pin, LOW);
+      digitalWrite(Relay2Pin, LOW);
+      lcd.setCursor(10,0);
+      lcd.print("     ");
+      lcd.setCursor(12,0);
+      lcd.print(StatusIdle);
+      CurrentStatus = StatusIdle;
+  }
+  if(CtrlLevel == 1){
+      digitalWrite(Relay1Pin, HIGH);
+      digitalWrite(Relay2Pin, LOW);
+      lcd.setCursor(10,0);
+      lcd.print("     ");
+      lcd.setCursor(13,0);
+      lcd.print(StatusLow);
+      CurrentStatus = StatusLow;            
+  }
+  if(CtrlLevel == 2){
+      digitalWrite(Relay1Pin, LOW);
+      digitalWrite(Relay2Pin, HIGH);
+      lcd.setCursor(10,0);
+      lcd.print("     ");
+      lcd.setCursor(13,0);
+      lcd.print(StatusMed);
+      CurrentStatus = StatusMed;            
+  }  
+  if(CtrlLevel == 3){
+      digitalWrite(Relay1Pin, HIGH);
+      digitalWrite(Relay2Pin, HIGH);
+      lcd.setCursor(10,0);
+      lcd.print("     ");
+      lcd.setCursor(12,0);
+      lcd.print(StatusHigh);       
+      CurrentStatus = StatusHigh;     
+  }
+  Serial.print("Heater Control Status: ");
+  Serial.println(CurrentStatus);
+}
+
+void loop() {
+  
+  if(abs(millis() - PollMillis) > PollDelay){
+    
+    GetTemperature();
+    
+    if(CurrentTemp < DesiredTemp){
+      DeltaT = abs((DesiredTemp - CurrentTemp));
+      if(DeltaT == 1){
+        HeaterControl(1);    
+      }
+      if(DeltaT == 2){
+        HeaterControl(2);        
+      }      
+      if(DeltaT >= 3){
+        HeaterControl(3);
+      }      
+    }
+    if(CurrentTemp > (DesiredTemp + TempOffset)){
+      HeaterControl(0);  
+    }
+  }
+ 
+  ButtonState = digitalRead(ButtonPin);
+
+  if(ButtonState == LOW){
+      DesiredTemp = DesiredTemp + 1;
+      if(DesiredTemp > 80){
+          DesiredTemp = 62;
+      }
+      lcd.setCursor(14,1);
+      lcd.print(DesiredTemp);  
+      delay(350);
+  }
+  
+  delay(100);
+
+}
